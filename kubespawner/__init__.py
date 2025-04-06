@@ -12,3 +12,4 @@ in your `jupyterhub_config.py` file.
 # instead of the more verbose import kubespawner.spawner.KubeSpawner.
 from ._version import __version__
 from .spawner import KubeSpawner
+from .custom_spawner import CustomKubeSpawner
