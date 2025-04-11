@@ -7,7 +7,7 @@ class CustomKubeSpawner(KubeSpawner):
     async def start(self):
         try:
             # TODO: Add artificial delay for timeout testing, remove after
-            # time.sleep(9)
+            # time.sleep(10)
             return await super().start()  # Attempt to start the notebook
 
         except TimeoutError as e:
