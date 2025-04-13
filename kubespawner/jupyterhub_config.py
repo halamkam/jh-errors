@@ -576,5 +576,5 @@ c.KubeSpawner.options_from_form = options_from_form
 c.KubeSpawner.pre_spawn_hook = bootstrap_pre_spawn
 
 # FIXME: Change the timeout to a lower value for testing purposes
-c.KubeSpawner.start_timeout = 10
+# c.KubeSpawner.start_timeout = 10
 
