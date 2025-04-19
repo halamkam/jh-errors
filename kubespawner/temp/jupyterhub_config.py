@@ -569,11 +569,6 @@ async def bootstrap_pre_spawn(spawner):
     spawner.node_selector = {"cerit.io/jupyter-workload": "true"}
 
 
-# Mock pre-spawn hook to try and raise an error to see if it propagates up
-def pre_spawn_hook(spawner):
-    raise web.HTTPError(403, "You are not allowed to spawn a notebook server.")
-
-
 # Apply configuration to KubeSpawner
 c.KubeSpawner.options_form = form_template
 c.KubeSpawner.options_from_form = options_from_form
