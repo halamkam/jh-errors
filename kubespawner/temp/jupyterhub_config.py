@@ -45,7 +45,7 @@ c.JupyterHub.spawner_class = "kubespawner.CustomKubeSpawner"
 # Connect to a proxy running in a different pod. Note that *_SERVICE_*
 # environment variables are set by Kubernetes for Services
 c.ConfigurableHTTPProxy.api_url = (
-    f'http://{get_name("proxy-api")}:{get_name_env("proxy-api", "_SERVICE_PORT")}'
+    f"http://{get_name('proxy-api')}:{get_name_env('proxy-api', '_SERVICE_PORT')}"
 )
 c.ConfigurableHTTPProxy.should_start = False
 
@@ -105,7 +105,7 @@ c.JupyterHub.hub_bind_url = f"http://:{hub_container_port}"
 # JupyterHub services such as the proxy. Note that *_SERVICE_* environment
 # variables are set by Kubernetes for Services.
 c.JupyterHub.hub_connect_url = (
-    f'http://{get_name("hub")}:{get_name_env("hub", "_SERVICE_PORT")}'
+    f"http://{get_name('hub')}:{get_name_env('hub', '_SERVICE_PORT')}"
 )
 
 # implement common labels
@@ -542,19 +542,21 @@ form_template = """
     </select>
 """
 
+
 # Function to parse form data
 def options_from_form(formdata):
     """Parse the submitted form data into user options."""
     options = {}
-    options['cpu'] = formdata.get('cpuselection', ['1'])[0]  # Default to 1 CPU
-    options['mem'] = formdata.get('memselection', ['4'])[0]  # Default to 4GB RAM
+    options["cpu"] = formdata.get("cpuselection", ["1"])[0]  # Default to 1 CPU
+    options["mem"] = formdata.get("memselection", ["4"])[0]  # Default to 4GB RAM
     return options
+
 
 # Pre-spawn hook to set resource limits
 async def bootstrap_pre_spawn(spawner):
     """Set CPU and memory limits based on user selection."""
-    cpu = float(spawner.user_options.get('cpu', 1))  # Default 1 CPU
-    mem = int(spawner.user_options.get('mem', 4))  # Default 4GB RAM
+    cpu = float(spawner.user_options.get("cpu", 1))  # Default 1 CPU
+    mem = int(spawner.user_options.get("mem", 4))  # Default 4GB RAM
 
     # Assign resources
     spawner.cpu_limit = cpu
@@ -563,12 +565,14 @@ async def bootstrap_pre_spawn(spawner):
     spawner.mem_guarantee = f"{mem}G"
 
     # Add node selector if required
+    spawner.image = "nonexistent.registry.io/broken-image:latest"  # FIXME: Line used to test invalid image error handling
     spawner.node_selector = {"cerit.io/jupyter-workload": "true"}
 
 
 # Mock pre-spawn hook to try and raise an error to see if it propagates up
 def pre_spawn_hook(spawner):
     raise web.HTTPError(403, "You are not allowed to spawn a notebook server.")
+
 
 # Apply configuration to KubeSpawner
 c.KubeSpawner.options_form = form_template
@@ -577,4 +581,3 @@ c.KubeSpawner.pre_spawn_hook = bootstrap_pre_spawn
 
 # FIXME: Change the timeout to a lower value for testing purposes
 # c.KubeSpawner.start_timeout = 10
-
