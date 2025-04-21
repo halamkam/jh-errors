@@ -43,7 +43,7 @@ User requests more resources than allowed by the quota set for them via `request
 - Catch the error.
 - Display a user-friendly error message.
 - (Not yet implemented) Display current `requests.cpu` and `requests.memory` values, or implement an AI helper that recommends valid values.
-- (Optional) Add redirect back to the home page for the user to not try and refresh but click the button to go to home page and try again from there. (URL for this should be found the value of variable `spawner.hub.base_url`).
+- (Optional) Add redirect back to the home page for the user to not try and refresh but click the button to go to home page and try again from there. (URL for this should be found as the value of variable `spawner.hub.base_url`).
 - Allow the user to try again.
 
 
@@ -62,7 +62,7 @@ User enters a non-existent image name.
   - **Dev Hub:** Error popup: `API request failed (400): user1 is pending check, please wait.`
   - **Infra Prod Hub:** Stop button does nothing.
 
-**Solution:**
+**Future Solution:**
 - Detect and catch this error early.
 - Kill the notebook spawn process (clean up all associated events).
 - Show a user-friendly error message.
@@ -86,3 +86,9 @@ Check the pod logs for the singleuser notebook. Look for warning messages and po
 - Display an informative, friendly error message.
 - Allow retry.
 - (Future Enhancement) Use an AI helper to analyze available resources and suggest a valid configuration.
+
+### 4. Non-existent PVC (Error Code TBD)
+
+Cause:
+
+- To be specified.
