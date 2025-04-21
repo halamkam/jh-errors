@@ -540,23 +540,32 @@ form_template = """
         <option value="128">128</option>
         <option value="256">256</option>
     </select>
+
+    <h4>Enter Docker image name (optional)</h4>
+    <input class="data-list-input" type="text" name="imageselection" placeholder="e.g. jupyter/scipy-notebook:latest" style="width:400px;" />
 """
 
 
 # Function to parse form data
 def options_from_form(formdata):
     """Parse the submitted form data into user options."""
-    options = {}
-    options["cpu"] = formdata.get("cpuselection", ["1"])[0]  # Default to 1 CPU
-    options["mem"] = formdata.get("memselection", ["4"])[0]  # Default to 4GB RAM
+    options = {
+        "cpu": int(formdata.get("cpuselection", ["1"])[0]),  # Default to 1 CPU
+        "mem": int(formdata.get("memselection", ["4"])[0]),  # Default to 4GB RAM
+    }
+
+    image = formdata.get("imageselection", [""])[0].strip()
+    if image:  # If an image is provided, set it, else use the default image
+        options["image"] = image
     return options
 
 
 # Pre-spawn hook to set resource limits
 async def bootstrap_pre_spawn(spawner):
-    """Set CPU and memory limits based on user selection."""
-    cpu = float(spawner.user_options.get("cpu", 1))  # Default 1 CPU
-    mem = int(spawner.user_options.get("mem", 4))  # Default 4GB RAM
+    """Set CPU and memory limits based on user selection. Let user choose an image as well."""
+    cpu = spawner.user_options["cpu"]
+    mem = spawner.user_options["mem"]
+    image = spawner.user_options.get("image", None)
 
     # Assign resources
     spawner.cpu_limit = cpu
@@ -564,9 +573,9 @@ async def bootstrap_pre_spawn(spawner):
     spawner.mem_limit = f"{mem}G"
     spawner.mem_guarantee = f"{mem}G"
 
-    # Add node selector if required
-    spawner.image = "nonexistent.registry.io/broken-image:latest"  # FIXME: Line used to test invalid image error handling
-    spawner.node_selector = {"cerit.io/jupyter-workload": "true"}
+    if image is not None:
+        # Set the image if provided by the user
+        spawner.image = image
 
 
 # Apply configuration to KubeSpawner
