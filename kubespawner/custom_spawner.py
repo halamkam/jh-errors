@@ -17,7 +17,8 @@ class CustomKubeSpawner(KubeSpawner):
                 self.log.error(
                     "[CustomKubeSpawner] Fatal error detected, stopping spawn."
                 )
-                await self.stop()  # Try to stop the pod gracefully
+                # Ensure the pod is stopped (same way as can be seen in spawner.py/Kubespawner/_start())
+                await self.stop(now=True)
                 raise HTTPError(500, self._fatal_spawn_error)
 
             return result
