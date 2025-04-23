@@ -54,6 +54,9 @@ User requests more resources than allowed by the quota set for them via `request
 **Cause:**  
 User enters a non-existent image name.
 
+**Testing:**
+To invoke this error, put `nonexistent.registry.io/broken-image:latest` in the image form when spawning a notebook.
+
 **Current Behavior:**
 - Spawn begins and tries to pull the image.
 - Logs: `ErrImagePull` warning appears.
