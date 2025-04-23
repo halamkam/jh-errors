@@ -9,18 +9,15 @@ class CustomKubeSpawner(KubeSpawner):
     async def start(self):
         self._fatal_spawn_error = None
 
-        # Start monitoring pod errors in the background
-        monitor_task = asyncio.create_task(self._check_pod_events_for_errors())
-
+        # Run spawn and monitor concurrently
         try:
-            result = await super().start()
+            result = await self._start_with_monitor()
 
             if self._fatal_spawn_error:
                 self.log.error(
-                    "[CustomKubeSpawner] Found fatal error, shutting down the spawn."
+                    "[CustomKubeSpawner] Fatal error detected, stopping spawn."
                 )
-                # Stop the user server properly using built-in cleanup
-                await super().stop()  # Might want to add now=True here
+                await self.stop(now=True)
                 raise HTTPError(500, self._fatal_spawn_error)
 
             return result
@@ -52,9 +49,36 @@ class CustomKubeSpawner(KubeSpawner):
                 else "Notebook failed to start due to an unexpected error. Please contact support.",
             )
 
-        finally:
-            if not monitor_task.done():
-                monitor_task.cancel()
+    async def _start_with_monitor(self):
+        """Runs spawn alongside event monitoring and handles race condition properly."""
+        monitor_task = asyncio.create_task(self._check_pod_events_for_errors())
+        spawn_coro = super().start()
+
+        # Wait for either task to complete
+        done, pending = await asyncio.wait(
+            [monitor_task, spawn_coro],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Case: Fatal error detected
+        if monitor_task in done and self._fatal_spawn_error:
+            self.log.error(
+                "[CustomKubeSpawner] Cancelling spawn due to unrecoverable error."
+            )
+            return None  # Skip returning a spawn URL
+
+        # Case: Spawn finished first
+        for task in done:
+            if task is not monitor_task:
+                return await task
+
+        # Cancel anything left
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     async def _check_pod_events_for_errors(self, timeout=30):
         """Monitors Kubernetes events for the pod and detects unrecoverable errors."""
