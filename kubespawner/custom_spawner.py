@@ -9,25 +9,21 @@ class CustomKubeSpawner(KubeSpawner):
     async def start(self):
         self._fatal_spawn_error = None
 
-        # Create tasks
-        spawn_task = asyncio.create_task(super().start())
+        # Start monitoring pod errors in the background
         monitor_task = asyncio.create_task(self._check_pod_events_for_errors())
 
-        done, pending = await asyncio.wait(
-            [spawn_task, monitor_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
         try:
-            if monitor_task in done and self._fatal_spawn_error:
+            result = await super().start()
+
+            if self._fatal_spawn_error:
                 self.log.error(
-                    "[CustomKubeSpawner] Fatal error detected, aborting spawn."
+                    "[CustomKubeSpawner] Found fatal error, shutting down the spawn."
                 )
-                await self.stop(now=True)
+                # Stop the user server properly using built-in cleanup
+                await super().stop()  # Might want to add now=True here
                 raise HTTPError(500, self._fatal_spawn_error)
 
-            if spawn_task in done:
-                return await spawn_task
+            return result
 
         except ApiException as e:
             if e.status == 403:
@@ -57,12 +53,8 @@ class CustomKubeSpawner(KubeSpawner):
             )
 
         finally:
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+            if not monitor_task.done():
+                monitor_task.cancel()
 
     async def _check_pod_events_for_errors(self, timeout=30):
         """Monitors Kubernetes events for the pod and detects unrecoverable errors."""
