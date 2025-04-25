@@ -86,30 +86,34 @@ class CustomKubeSpawner(KubeSpawner):
         namespace = self.namespace
         pod_name = self.pod_name
         start_time = time.time()
+        # Let the pod try to start for a few seconds before checking events
+        await asyncio.sleep(5)
 
         self.log.info(
             f"[CustomKubeSpawner] Watching events for pod '{pod_name}' in namespace '{namespace}'..."
         )
+
+        self.log.debug(f"[CustomKubeSpawner] Events: {self.events}")
 
         while time.time() - start_time < timeout:
             try:
                 for event in self.events:
                     reason = event.get("reason")
                     message = event.get("message")
-                    self.log.debug(
-                        f"[CustomKubeSpawner] Event reason: {reason} - Event message: {message}"
-                    )
 
                     if "Failed" in reason and (
                         "ErrImagePull" in message or "ImagePullBackOff" in message
                     ):
                         self.log.error(
-                            f"[CustomKubeSpawner] Event indicates unrecoverable error: {reason} - {message}"
+                            f"""[CustomKubeSpawner] Event indicates unrecoverable error: 
+                            Reason: {reason}
+                            Message: {message}"""
                         )
                         self._fatal_spawn_error = (
                             f"Failed to pull the notebook image.\n\nReason: {reason}\nDetails: {message}\n\n"
                             "This usually means the image doesn't exist or is misconfigured. Please contact support."
                         )
+                        self.log.info("[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error.")
                         return
 
                 await asyncio.sleep(2)
@@ -123,3 +127,5 @@ class CustomKubeSpawner(KubeSpawner):
                     f"[CustomKubeSpawner] Unexpected error while checking events: {e}"
                 )
                 break
+
+        self.log.info(f"[CustomKubeSpawner] Event monitoring finished after {timeout} seconds.")
