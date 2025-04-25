@@ -24,12 +24,11 @@ While the **html templates** are located in:
 
 ## 3. Notes
 
-Weird behavior when trying to spawn notebooks quickly after failed spawns - I tried Quota exceeded spawn and immediately after another Quota exceeded spawn and it gave me
-error regarding the image for some reason? The next time I got 500 Internal Server Error - somehow, the routine for checking the Image error is not working very well and it is getting thrown in there even with Quota exceeded.
+- Weird behavior when trying to spawn notebooks quickly after failed spawns - I tried `Quota exceeded` spawn and immediately after another `Quota exceeded` spawn and it gave me
+error regarding the image for some reason? The next time I got `500 Internal Server Error` - somehow, the routine for checking the Image error is not working very well and it is getting thrown in there even with Quota exceeded.
+    - Weirdly, I can't reproduce this anymore? (25.4.) - If I do a `Quota exceeded` spawn -> Go to home page -> try `Quota exceeded` spawn again -> Repeat - **every spawn properly tries to start, fails with the Quota exceeded exception and shows the correct message.**
 
-Also, doing image not found spawn twice after each other doesn't work properly either.
-
-Weird behaviour even with just the basic KubeSpawner class. (for 2 Quota exceeded spawns after each other) - never mind, this seems to be OK, you can keep spamming Quota exceeded spawns after each other as long as you go back to menu and try to spawn again, you just can't refresh on the pending page as that will give you `500 Internal Server Error`.
+- Doing `Image Not Found` spawn and then doing any other type of spawn (whether it's `Quota exceeded` or a correct one that should be finished), the `Image Not Found` error shows up for the user on the page (BUG)
 
 ## 4. Errors
 
@@ -101,3 +100,7 @@ Check the pod logs for the singleuser notebook. Look for warning messages and po
 Cause:
 
 - To be specified.
+
+## 5. Tests
+
+## 6. Known Bugs
