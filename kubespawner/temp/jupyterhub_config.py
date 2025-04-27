@@ -543,6 +543,9 @@ form_template = """
 
     <h4>Enter Docker image name (optional)</h4>
     <input class="data-list-input" type="text" name="imageselection" placeholder="e.g. jupyter/scipy-notebook:latest" style="width:400px;" />
+
+    <h4>Optional: Specify PVC to mount</h4>
+    <input class="data-list-input" type="text" id="pvcname" name="pvcname" placeholder="Enter PVC name (optional)" style="width:190px;">
 """
 
 
@@ -552,6 +555,7 @@ def options_from_form(formdata):
     options = {
         "cpu": int(formdata.get("cpuselection", ["1"])[0]),  # Default to 1 CPU
         "mem": int(formdata.get("memselection", ["4"])[0]),  # Default to 4GB RAM
+        "pvcname": formdata.get("pvcname", [""])[0],  # Default empty if not provided
     }
 
     image = formdata.get("imageselection", [""])[0].strip()
@@ -566,6 +570,7 @@ async def bootstrap_pre_spawn(spawner):
     cpu = spawner.user_options["cpu"]
     mem = spawner.user_options["mem"]
     image = spawner.user_options.get("image", None)
+    pvcname = spawner.user_options["pvcname"]
 
     # Assign resources
     spawner.cpu_limit = cpu
@@ -577,6 +582,17 @@ async def bootstrap_pre_spawn(spawner):
         # Set the image if provided by the user
         spawner.image = image
 
+    if pvcname:
+        spawner.volumes = [
+            {"name": "user-storage", "persistentVolumeClaim": {"claimName": pvcname}}
+        ]
+        spawner.volume_mounts = [
+            {
+                "mountPath": "/home/jovyan/work",  # or wherever you want
+                "name": "user-storage",
+            }
+        ]
+
 
 # Apply configuration to KubeSpawner
 c.KubeSpawner.options_form = form_template
@@ -584,4 +600,4 @@ c.KubeSpawner.options_from_form = options_from_form
 c.KubeSpawner.pre_spawn_hook = bootstrap_pre_spawn
 
 # FIXME: Change the timeout to a lower value for testing purposes
-# c.KubeSpawner.start_timeout = 10
+# c.KubeSpawner.start_timeout = 60
