@@ -24,11 +24,12 @@ While the **html templates** are located in:
 
 ## 3. Notes
 
-- Weird behavior when trying to spawn notebooks quickly after failed spawns - I tried `Quota exceeded` spawn and immediately after another `Quota exceeded` spawn and it gave me
-error regarding the image for some reason? The next time I got `500 Internal Server Error` - somehow, the routine for checking the Image error is not working very well and it is getting thrown in there even with Quota exceeded.
-    - Weirdly, I can't reproduce this anymore? (25.4.) - If I do a `Quota exceeded` spawn -> Go to home page -> try `Quota exceeded` spawn again -> Repeat - **every spawn properly tries to start, fails with the Quota exceeded exception and shows the correct message.**
+### **What next?**
 
-- Doing `Image Not Found` spawn and then doing any other type of spawn (whether it's `Quota exceeded` or a correct one that should be finished), the `Image Not Found` error shows up for the user on the page (BUG)
+- Implement error handling for the `Unavailable Resources` error - let's say when the user requests 120 CPU cores, there is no way this request will be fulfilled as all of this needs to be free on a single node - the spawn will be pending until timeout (5 or 10 minutes?). We need to stop the spawn as is the case with `Image Not Found` error and display a proper error message for the user.
+- Implement error handling for the `Non-existent regular PVC` error - still need to research what this one is actually about and how to handle it, but I assume this is another unrecoverable error, so that we will need to stop the spawn and display a proper error message for the user.
+- Properly test all the implemented errors and their handling and document the tests in the `Tests` section of the notes. Also, document any encountered bugs in the `Known Bugs` section and how the bug was fixed.
+
 
 ## 4. Errors
 
@@ -95,7 +96,7 @@ Check the pod logs for the singleuser notebook. Look for warning messages and po
 - Allow retry.
 - (Future Enhancement) Use an AI helper to analyze available resources and suggest a valid configuration.
 
-### 4. Non-existent PVC (Error Code TBD)
+### 4. Non-existent regular PVC (Error Code TBD)
 
 Cause:
 
@@ -104,3 +105,16 @@ Cause:
 ## 5. Tests
 
 ## 6. Known Bugs
+
+### 🐞 `Image Not Found` error affects later spawns
+
+**Problem:**  
+Invoking the `Image Not Found` error spawn and then invoking any other type of spawn — whether successful or another error (such as `Quota Exceeded` or `Unavailable Resources`) — resulted in the spawn being stopped and the `Image Not Found` error incorrectly displayed on the `spawn-pending` page.
+
+**Cause:**  
+The event monitoring routine was checking `self.events` too early. It found leftover events (`ErrImagePull`) from a previous pod with the same name before the current spawn's events were filtered.
+
+**Fix:**  
+Introduced a **5-second delay** before starting the event monitoring routine. This allows the spawner’s `start()` method to set `self._last_event`, ensuring only **new** events are considered. Old events no longer affect the new spawn.
+
+---
