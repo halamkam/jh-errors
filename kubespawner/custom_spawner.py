@@ -105,6 +105,8 @@ class CustomKubeSpawner(KubeSpawner):
                     reason = event.get("reason")
                     message = event.get("message")
 
+                    self.log.debug(f"[CustomKubeSpawner] {reason} {message}")
+
                     if "Failed" in reason and (
                         "ErrImagePull" in message or "ImagePullBackOff" in message
                     ):
@@ -117,7 +119,39 @@ class CustomKubeSpawner(KubeSpawner):
                             f"Failed to pull the notebook image.\n\nReason: {reason}\nDetails: {message}\n\n"
                             "This usually means the image doesn't exist or is misconfigured. Please contact support."
                         )
-                        self.log.info("[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error.")
+                        self.log.info(
+                            "[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error."
+                        )
+                        return
+
+                    if "FailedScheduling" in reason and (
+                        "Insufficient cpu" in message
+                        or "Insufficient memory" in message
+                    ):
+                        self.log.error(
+                            f"""[CustomKubeSpawner] Event indicates unrecoverable error: 
+                            Reason: {reason}
+                            Message: {message}"""
+                        )
+                        self._fatal_spawn_error = (
+                            f"Failed to schedule the notebook server due to insufficient resources.\n\n"
+                            f"Details: {message}\n\n"
+                            "Please request fewer CPUs or memory and try again."
+                        )
+                        return
+
+                    if "FailedScheduling" in reason and (
+                        "persistentvolumeclaim" in message and "not found" in message
+                    ):
+                        self.log.error(
+                            f"""[CustomKubeSpawner] Event indicates unrecoverable error: 
+                            Reason: {reason}
+                            Message: {message}"""
+                        )
+                        self._fatal_spawn_error = (
+                            "Notebook failed to start because the specified PersistentVolumeClaim (PVC) was not found.\n\n"
+                            "Please check your storage configuration or contact support."
+                        )
                         return
 
                 await asyncio.sleep(2)
@@ -132,4 +166,6 @@ class CustomKubeSpawner(KubeSpawner):
                 )
                 break
 
-        self.log.info(f"[CustomKubeSpawner] Event monitoring finished after {timeout} seconds.")
+        self.log.info(
+            f"[CustomKubeSpawner] Event monitoring finished after {timeout} seconds."
+        )
