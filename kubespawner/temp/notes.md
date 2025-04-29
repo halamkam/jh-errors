@@ -26,11 +26,9 @@ While the **html templates** are located in:
 
 ### **What's next?**
 
-1.  Implement error handling for the `Unavailable Resources` error - let's say when the user requests 120 CPU cores, there is no way this request will be fulfilled as all of this needs to be free on a single node - the spawn will be pending until timeout (10 minutes). We need to stop the spawn as is the case with `Image Not Found` error and display a proper error message for the user.
-2. Implement error handling for the `Non-existent regular PVC` error - still need to research what this one is actually about and how to handle it, but I assume this is another unrecoverable error, so that we will need to stop the spawn and display a proper error message for the user.
-3. Change the way the errors are thrown and what message is displayed for end user in the `Image Not Found` and `Unavailable Resources` and `Non-existent regular PVC` error cases (right now the end message is very scuffed as the exception is being wrapped I believe twice with the sort of same information).
-4. Properly test all the implemented errors and their handling and document the tests in the `Tests` section of the notes. Also, document any encountered bugs in the `Known Bugs` section and how the bug was fixed.
-5. Based on the Word document, add more steps to this section of **What's next?** (Storage-related errors?, AI calls?, ...)
+1. Change the way the errors are thrown and what message is displayed for end user in the `Image Not Found` and `Unavailable Resources` and `Non-existent regular PVC` error cases (right now the end message is very scuffed as the exception is being wrapped I believe twice with the sort of same information).
+2. Properly test all the implemented errors and their handling and document the tests in the `Tests` section of the notes. Also, document any encountered bugs in the `Known Bugs` section and how the bug was fixed.
+3. Based on the Word document, add more steps to this section of **What's next?** (Storage-related errors?, AI calls?, ...)
  
 
 Try to set `start_timeout` in `jupyterhub_config.py` to let's say 60 seconds to see if it kills the spawn after that time (for `Unavailable Resources` error). - this works as expected
