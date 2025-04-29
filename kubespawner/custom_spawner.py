@@ -1,11 +1,12 @@
 import asyncio
 import time
+from kubespawner import KubeSpawner
+from tornado.web import HTTPError
+from kubernetes_asyncio.client.exceptions import ApiException
 from typing import Optional
 
-from kubernetes_asyncio.client.exceptions import ApiException
-from tornado.web import HTTPError
 
-from kubespawner import KubeSpawner
+CONTACT_INFO = "If this issue persists, please contact us at k8s@ics.muni.cz."
 
 
 class CustomKubeSpawner(KubeSpawner):
@@ -20,7 +21,6 @@ class CustomKubeSpawner(KubeSpawner):
                 self.log.error(
                     "[CustomKubeSpawner] Fatal error detected, stopping spawn."
                 )
-                # Ensure the pod is stopped (same way as can be seen in spawner.py/Kubespawner/_start())
                 await self.stop(now=True)
                 raise self._fatal_spawn_error
 
@@ -33,18 +33,17 @@ class CustomKubeSpawner(KubeSpawner):
                 )
                 raise HTTPError(
                     403,
-                    "Notebook failed to start: Your resource quota has been exceeded. Contact your administrator.",
+                    f"Notebook failed to start: Your resource quota has been exceeded.\n\n{CONTACT_INFO}",
                 )
 
         except Exception as e:
             self.log.error(f"[CustomKubeSpawner] Notebook spawn failed: {e}")
-
             raise (
                 e
                 if isinstance(e, HTTPError)
                 else HTTPError(
                     500,
-                    "Notebook failed to start due to an unexpected error. Please contact support.",
+                    f"Notebook failed to start due to an unexpected error.\n\n{CONTACT_INFO}",
                 )
             )
 
@@ -53,29 +52,24 @@ class CustomKubeSpawner(KubeSpawner):
         monitor_task = asyncio.create_task(self._check_pod_events_for_errors())
         spawn_task = super().start()
 
-        # Wait for either task to complete
         done, pending = await asyncio.wait(
             [monitor_task, spawn_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
 
         try:
-            # Case: Fatal error detected
             if monitor_task in done and self._fatal_spawn_error:
                 self.log.error(
                     "[CustomKubeSpawner] Cancelling spawn due to unrecoverable error."
                 )
-                return None  # Skip returning a spawn URL
+                return None
 
-            # Case: Spawn finished first
             for task in done:
                 if task is spawn_task:
                     return await task
 
         finally:
             self.log.debug(f"[CustomKubeSpawner] Pending tasks: {pending}")
-
-            # Clean up unfinished tasks
             for task in pending:
                 task.cancel()
                 try:
@@ -87,23 +81,19 @@ class CustomKubeSpawner(KubeSpawner):
         self, reason: str, message: str
     ) -> Optional[HTTPError]:
         """Returns an HTTPError if the event indicates an unrecoverable error, otherwise None."""
+        base_info = f"Reason: {reason}\nDetails: {message}\n\n{CONTACT_INFO}"
+
         if "Failed" in reason and (
             "ErrImagePull" in message or "ImagePullBackOff" in message
         ):
-            return HTTPError(
-                404,
-                f"Failed to pull the notebook image.\n\nReason: {reason}\nDetails: {message}\n\n"
-                "This usually means the image doesn't exist or is misconfigured. Please contact support.",
-            )
+            return HTTPError(404, f"Failed to pull the notebook image.\n\n{base_info}")
 
         if "FailedScheduling" in reason and (
             "Insufficient cpu" in message or "Insufficient memory" in message
         ):
             return HTTPError(
                 409,
-                f"Failed to schedule the notebook server due to insufficient resources.\n\n"
-                f"Details: {message}\n\n"
-                "Please request fewer CPUs or memory and try again.",
+                f"Failed to schedule the notebook server due to insufficient resources.\n\n{base_info}",
             )
 
         if "FailedScheduling" in reason and (
@@ -111,14 +101,12 @@ class CustomKubeSpawner(KubeSpawner):
         ):
             return HTTPError(
                 404,
-                "Notebook failed to start because the specified PersistentVolumeClaim (PVC) was not found.\n\n"
-                "Please check your storage configuration or contact support.",
+                f"Notebook failed to start because the specified PersistentVolumeClaim (PVC) was not found.\n\n{base_info}",
             )
 
         return None
 
     async def _check_pod_events_for_errors(self, timeout=30):
-        """Monitors Kubernetes events for the pod and detects unrecoverable errors."""
         start_time = time.time()
         await asyncio.sleep(5)
 
