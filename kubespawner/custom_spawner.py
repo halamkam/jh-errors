@@ -1,9 +1,11 @@
 import asyncio
 import time
-from kubespawner import KubeSpawner
-from tornado.web import HTTPError
-from kubernetes_asyncio.client.exceptions import ApiException
 from typing import Optional
+
+from kubernetes_asyncio.client.exceptions import ApiException
+from tornado.web import HTTPError
+
+from kubespawner import KubeSpawner
 
 
 class CustomKubeSpawner(KubeSpawner):
@@ -81,11 +83,45 @@ class CustomKubeSpawner(KubeSpawner):
                 except asyncio.CancelledError:
                     self.log.info("[CustomKubeSpawner] Pending task cancelled cleanly.")
 
+    def _detect_unrecoverable_error(
+        self, reason: str, message: str
+    ) -> Optional[HTTPError]:
+        """Returns an HTTPError if the event indicates an unrecoverable error, otherwise None."""
+        if "Failed" in reason and (
+            "ErrImagePull" in message or "ImagePullBackOff" in message
+        ):
+            return HTTPError(
+                404,
+                f"Failed to pull the notebook image.\n\nReason: {reason}\nDetails: {message}\n\n"
+                "This usually means the image doesn't exist or is misconfigured. Please contact support.",
+            )
+
+        if "FailedScheduling" in reason and (
+            "Insufficient cpu" in message or "Insufficient memory" in message
+        ):
+            return HTTPError(
+                409,
+                f"Failed to schedule the notebook server due to insufficient resources.\n\n"
+                f"Details: {message}\n\n"
+                "Please request fewer CPUs or memory and try again.",
+            )
+
+        if "FailedScheduling" in reason and (
+            "persistentvolumeclaim" in message and "not found" in message
+        ):
+            return HTTPError(
+                404,
+                "Notebook failed to start because the specified PersistentVolumeClaim (PVC) was not found.\n\n"
+                "Please check your storage configuration or contact support.",
+            )
+
+        return None
+
     async def _check_pod_events_for_errors(self, timeout=30):
         """Monitors Kubernetes events for the pod and detects unrecoverable errors."""
         start_time = time.time()
-        # Let the pod try to start for a few seconds before checking events
         await asyncio.sleep(5)
+
         self.log.info(
             f"[CustomKubeSpawner] Watching events for pod '{self.pod_name}' in namespace '{self.namespace}'..."
         )
@@ -95,59 +131,13 @@ class CustomKubeSpawner(KubeSpawner):
                 for event in self.events:
                     reason = event.get("reason")
                     message = event.get("message")
-
                     self.log.debug(f"[CustomKubeSpawner] {reason} {message}")
 
-                    if "Failed" in reason and (
-                        "ErrImagePull" in message or "ImagePullBackOff" in message
-                    ):
+                    error = self._detect_unrecoverable_error(reason, message)
+                    if error:
+                        self._fatal_spawn_error = error
                         self.log.error(
-                            f"""[CustomKubeSpawner] Event indicates unrecoverable error: 
-                            Reason: {reason}
-                            Message: {message}"""
-                        )
-                        self._fatal_spawn_error = HTTPError(
-                            404,
-                            f"Failed to pull the notebook image.\n\nReason: {reason}\nDetails: {message}\n\n"
-                            "This usually means the image doesn't exist or is misconfigured. Please contact support.",
-                        )
-                        self.log.info(
-                            "[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error."
-                        )
-                        return
-
-                    if "FailedScheduling" in reason and (
-                        "Insufficient cpu" in message
-                        or "Insufficient memory" in message
-                    ):
-                        self.log.error(
-                            f"""[CustomKubeSpawner] Event indicates unrecoverable error: 
-                            Reason: {reason}
-                            Message: {message}"""
-                        )
-                        self._fatal_spawn_error = HTTPError(
-                            409,
-                            f"Failed to schedule the notebook server due to insufficient resources.\n\n"
-                            f"Details: {message}\n\n"
-                            "Please request fewer CPUs or memory and try again.",
-                        )
-                        self.log.info(
-                            "[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error."
-                        )
-                        return
-
-                    if "FailedScheduling" in reason and (
-                        "persistentvolumeclaim" in message and "not found" in message
-                    ):
-                        self.log.error(
-                            f"""[CustomKubeSpawner] Event indicates unrecoverable error: 
-                            Reason: {reason}
-                            Message: {message}"""
-                        )
-                        self._fatal_spawn_error = HTTPError(
-                            404,
-                            "Notebook failed to start because the specified PersistentVolumeClaim (PVC) was not found.\n\n"
-                            "Please check your storage configuration or contact support.",
+                            f"[CustomKubeSpawner] Event indicates unrecoverable error:\nReason: {reason}\nMessage: {message}"
                         )
                         self.log.info(
                             "[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error."
