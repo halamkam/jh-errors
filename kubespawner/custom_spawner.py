@@ -3,11 +3,12 @@ import time
 from kubespawner import KubeSpawner
 from tornado.web import HTTPError
 from kubernetes_asyncio.client.exceptions import ApiException
+from typing import Optional
 
 
 class CustomKubeSpawner(KubeSpawner):
     async def start(self):
-        self._fatal_spawn_error = None
+        self._fatal_spawn_error: Optional[HTTPError] = None
 
         # Run spawn and monitor concurrently
         try:
@@ -19,7 +20,7 @@ class CustomKubeSpawner(KubeSpawner):
                 )
                 # Ensure the pod is stopped (same way as can be seen in spawner.py/Kubespawner/_start())
                 await self.stop(now=True)
-                raise HTTPError(500, self._fatal_spawn_error)
+                raise self._fatal_spawn_error
 
             return result
 
@@ -32,22 +33,17 @@ class CustomKubeSpawner(KubeSpawner):
                     403,
                     "Notebook failed to start: Your resource quota has been exceeded. Contact your administrator.",
                 )
-            else:
-                self.log.error(
-                    f"[CustomKubeSpawner] Notebook spawn failed due to API error: {e}"
-                )
-                raise HTTPError(
-                    500,
-                    f"Notebook failed to start: An unexpected error occurred with the Kubernetes API: {e.reason}. Please contact support.",
-                )
 
         except Exception as e:
             self.log.error(f"[CustomKubeSpawner] Notebook spawn failed: {e}")
-            raise HTTPError(
-                500,
-                str(e)
+
+            raise (
+                e
                 if isinstance(e, HTTPError)
-                else "Notebook failed to start due to an unexpected error. Please contact support.",
+                else HTTPError(
+                    500,
+                    "Notebook failed to start due to an unexpected error. Please contact support.",
+                )
             )
 
     async def _start_with_monitor(self):
@@ -87,17 +83,12 @@ class CustomKubeSpawner(KubeSpawner):
 
     async def _check_pod_events_for_errors(self, timeout=30):
         """Monitors Kubernetes events for the pod and detects unrecoverable errors."""
-        namespace = self.namespace
-        pod_name = self.pod_name
         start_time = time.time()
         # Let the pod try to start for a few seconds before checking events
         await asyncio.sleep(5)
-
         self.log.info(
-            f"[CustomKubeSpawner] Watching events for pod '{pod_name}' in namespace '{namespace}'..."
+            f"[CustomKubeSpawner] Watching events for pod '{self.pod_name}' in namespace '{self.namespace}'..."
         )
-
-        self.log.debug(f"[CustomKubeSpawner] Events: {self.events}")
 
         while time.time() - start_time < timeout:
             try:
@@ -115,9 +106,10 @@ class CustomKubeSpawner(KubeSpawner):
                             Reason: {reason}
                             Message: {message}"""
                         )
-                        self._fatal_spawn_error = (
+                        self._fatal_spawn_error = HTTPError(
+                            404,
                             f"Failed to pull the notebook image.\n\nReason: {reason}\nDetails: {message}\n\n"
-                            "This usually means the image doesn't exist or is misconfigured. Please contact support."
+                            "This usually means the image doesn't exist or is misconfigured. Please contact support.",
                         )
                         self.log.info(
                             "[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error."
@@ -133,10 +125,14 @@ class CustomKubeSpawner(KubeSpawner):
                             Reason: {reason}
                             Message: {message}"""
                         )
-                        self._fatal_spawn_error = (
+                        self._fatal_spawn_error = HTTPError(
+                            409,
                             f"Failed to schedule the notebook server due to insufficient resources.\n\n"
                             f"Details: {message}\n\n"
-                            "Please request fewer CPUs or memory and try again."
+                            "Please request fewer CPUs or memory and try again.",
+                        )
+                        self.log.info(
+                            "[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error."
                         )
                         return
 
@@ -148,9 +144,13 @@ class CustomKubeSpawner(KubeSpawner):
                             Reason: {reason}
                             Message: {message}"""
                         )
-                        self._fatal_spawn_error = (
+                        self._fatal_spawn_error = HTTPError(
+                            404,
                             "Notebook failed to start because the specified PersistentVolumeClaim (PVC) was not found.\n\n"
-                            "Please check your storage configuration or contact support."
+                            "Please check your storage configuration or contact support.",
+                        )
+                        self.log.info(
+                            "[CustomKubeSpawner] Event monitoring finished after finding an unrecoverable error."
                         )
                         return
 
@@ -158,14 +158,14 @@ class CustomKubeSpawner(KubeSpawner):
 
             except asyncio.CancelledError:
                 self.log.info("[CustomKubeSpawner] Event monitoring cancelled.")
-                break
+                return
 
             except Exception as e:
                 self.log.warning(
-                    f"[CustomKubeSpawner] Unexpected error while checking events: {e}"
+                    f"[CustomKubeSpawner] Unexpected error while monitoring events: {e}"
                 )
-                break
+                return
 
         self.log.info(
-            f"[CustomKubeSpawner] Event monitoring finished after {timeout} seconds."
+            f"[CustomKubeSpawner] Event monitoring finished after {timeout} seconds. No unrecoverable errors detected."
         )
