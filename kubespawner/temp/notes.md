@@ -67,46 +67,86 @@ User requests more resources than allowed by the quota set for them via `request
 ### 2. Image Not Found (404 - Not Found)
 
 **Cause:**  
-User enters a non-existent image name.
+User specifies a container image that does not exist or cannot be pulled.
 
-**Testing:**
-To invoke this error, put `nonexistent.registry.io/broken-image:latest` in the image form when spawning a notebook.
+**Previous Behavior:**
+- Once invoked, the spawn stays in the `pending` state indefinitely (until the spawn times out based on the value of `start_timeout` in the `jupyerhub_config.py` / fetched from `values.yaml`) .
 
-**Current Behavior:**
-- Spawn begins and tries to pull the image.
-- Logs: `ErrImagePull` warning appears.
-- Notebook remains in pending state.
-- Stop button results in:
-  - **Dev Hub:** Error popup: `API request failed (400): user1 is pending check, please wait.`
-  - **Infra Prod Hub:** Stop button does nothing.
+- On the `spawn-pending` page that is displayed for the user while waiting for the notebook to start, the user can see warnings in the `Event log` on the page suggesting that something is wrong with the spawn, however the spawn does not get stopped nor can the user stop it or adjust the image. **Note that the spawn can't be stopped by pressing the `Stop my server` button.**. 
+  - On the ***Dev hub***, pressing the button gives the following pop-up: `API request failed (400): user1 is pending check, please wait.`
+  - On the ***Infra production hub***, pressing the button does not inform user of anything (no pop-up is displayed).
 
-**Future Solution:**
-- Detect and catch this error early.
-- Kill the notebook spawn process (clean up all associated events).
-- Show a user-friendly error message.
-- Allow the user to try again.
+- After the notebook spawn times out, the spawn fails with a `TimeoutError` that gets displayed to the user.
 
+**New Behavior:**
+- Once invoked, the spawn fails (after a few seconds by raising an `HTTPError`) and displays a human-readable short and concise message stating the reason for the failure and prompting the user to contact the administrator if the issue persists.
+
+- The spawn's failure is decided by a newly implemented event monitoring routine (custom spawner's method `_check_pod_events_for_errors(timeout=30)`), which looks for specific **event reasons and messages**, by which the routine identifies an unrecoverable error and stops the spawn instead of waiting around in the `pending` state until the spawn times out.
+
+- The `_check_pod_events_for_errors(timeout=30)` method is started alongside the `start()` method and has a default 30 second timeout (we assume the spawn will either be successful or and unrecoverable error will be found by that point). The monitoring routine has a 5 second delay, however, to give `start()` method enough time to filter old events and to try to actually start the notebook.
+
+- When the spawn is stopped, all the tasks/events related to the spawn are cancelled and cleaned up by calling the spawner's `stop()` method and cancelling the pending `start()` method.
+
+- Reloading results in a `HTTP 500: Internal server error` (since reloading means the URL remains unchanged looking like this: `https://jh-error.dyn.cloud.e-infra.cz/hub/spawn-pending/user1?_xsrf=2%7C3ff4198b%7Cdacde6d671cfcd3c11e427383c6ee687%7C1745340318`). This is retrying to acccess the pending spawn that has already been cancelled when the `HTTPError` was raised.
+
+- Going back to the `Home page` and pressing the `Start My Server` button takes the user back to the spawn form and allows them to try again.
 ---
 
-### 3. Unavailable Resources (Error Code TBD)
+### 3. Unavailable Resources (409 - Conflict)
 
 **Cause:**  
-- Request is within quota, but not enough actual resources are available in the cluster (e.g., requesting 120 CPUs when only one node is available with fewer resources).
-- Notebook stays in spawning phase indefinitely.
+User requests resources that are technically allowed by quota but not available on any node in the cluster (e.g. 120 CPUs).
 
-**Solution:**
-- Treat similarly to the "Image Not Found" case.
-- Catch the error.
-- Kill the spawn and clean up.
-- Display an informative, friendly error message.
-- Allow retry.
-- (Future Enhancement) Use an AI helper to analyze available resources and suggest a valid configuration.
+**Previous Behavior:**
+- Once invoked, the spawn stays in the `pending` state indefinitely (until the spawn times out based on the value of `start_timeout` in the `jupyerhub_config.py` / fetched from `values.yaml`) .
 
-### 4. Non-existent regular PVC (Error Code TBD)
+- On the `spawn-pending` page that is displayed for the user while waiting for the notebook to start, the user can see warnings in the `Event log` on the page suggesting that something is wrong with the spawn, however the spawn does not get stopped nor can the user stop it or adjust the image. **Note that the spawn can't be stopped by pressing the `Stop my server` button.**. 
+  - On the ***Dev hub***, pressing the button gives the following pop-up: `API request failed (400): user1 is pending check, please wait.`
+  - On the ***Infra production hub***, pressing the button does not inform user of anything (no pop-up is displayed).
 
-Cause:
+- After the notebook spawn times out, the spawn fails with a `TimeoutError` that gets displayed to the user.
 
-- To be specified.
+**New Behavior:**
+- Once invoked, the spawn fails (after a few seconds by raising an `HTTPError`) and displays a human-readable short and concise message stating the reason for the failure and prompting the user to contact the administrator if the issue persists.
+
+- The spawn's failure is decided by a newly implemented event monitoring routine (custom spawner's method `_check_pod_events_for_errors(timeout=30)`), which looks for specific **event reasons and messages**, by which the routine identifies an unrecoverable error and stops the spawn instead of waiting around in the `pending` state until the spawn times out.
+
+- The `_check_pod_events_for_errors(timeout=30)` method is started alongside the `start()` method and has a default 30 second timeout (we assume the spawn will either be successful or and unrecoverable error will be found by that point). The monitoring routine has a 5 second delay, however, to give `start()` method enough time to filter old events and to try to actually start the notebook.
+
+- When the spawn is stopped, all the tasks/events related to the spawn are cancelled and cleaned up by calling the spawner's `stop()` method and cancelling the pending `start()` method.
+
+- Reloading results in a `HTTP 500: Internal server error` (since reloading means the URL remains unchanged looking like this: `https://jh-error.dyn.cloud.e-infra.cz/hub/spawn-pending/user1?_xsrf=2%7C3ff4198b%7Cdacde6d671cfcd3c11e427383c6ee687%7C1745340318`). This is retrying to acccess the pending spawn that has already been cancelled when the `HTTPError` was raised.
+
+- Going back to the `Home page` and pressing the `Start My Server` button takes the user back to the spawn form and allows them to try again.
+---
+
+### 4. Non-existent regular PVC (404 - Not Found)
+
+**Cause:**
+User specifies a `PersistentVolumeClaim (PVC)` in the spawn form that does not exist in the current namespace.
+
+**Previous Behavior:**
+- Once invoked, the spawn stays in the `pending` state indefinitely (until the spawn times out based on the value of `start_timeout` in the `jupyerhub_config.py` / fetched from `values.yaml`) .
+
+- On the `spawn-pending` page that is displayed for the user while waiting for the notebook to start, the user can see warnings in the `Event log` on the page suggesting that something is wrong with the spawn, however the spawn does not get stopped nor can the user stop it or adjust the image. **Note that the spawn can't be stopped by pressing the `Stop my server` button.**. 
+  - On the ***Dev hub***, pressing the button gives the following pop-up: `API request failed (400): user1 is pending check, please wait.`
+  - On the ***Infra production hub***, pressing the button does not inform user of anything (no pop-up is displayed).
+
+- After the notebook spawn times out, the spawn fails with a `TimeoutError` that gets displayed to the user.
+
+**New Behavior:**
+- Once invoked, the spawn fails (after a few seconds by raising an `HTTPError`) and displays a human-readable short and concise message stating the reason for the failure and prompting the user to contact the administrator if the issue persists.
+
+- The spawn's failure is decided by a newly implemented event monitoring routine (custom spawner's method `_check_pod_events_for_errors(timeout=30)`), which looks for specific **event reasons and messages**, by which the routine identifies an unrecoverable error and stops the spawn instead of waiting around in the `pending` state until the spawn times out.
+
+- The `_check_pod_events_for_errors(timeout=30)` method is started alongside the `start()` method and has a default 30 second timeout (we assume the spawn will either be successful or and unrecoverable error will be found by that point). The monitoring routine has a 5 second delay, however, to give `start()` method enough time to filter old events and to try to actually start the notebook.
+
+- When the spawn is stopped, all the tasks/events related to the spawn are cancelled and cleaned up by calling the spawner's `stop()` method and cancelling the pending `start()` method.
+
+- Reloading results in a `HTTP 500: Internal server error` (since reloading means the URL remains unchanged looking like this: `https://jh-error.dyn.cloud.e-infra.cz/hub/spawn-pending/user1?_xsrf=2%7C3ff4198b%7Cdacde6d671cfcd3c11e427383c6ee687%7C1745340318`). This is retrying to acccess the pending spawn that has already been cancelled when the `HTTPError` was raised.
+
+- Going back to the `Home page` and pressing the `Start My Server` button takes the user back to the spawn form and allows them to try again.
+---
 
 ## 5. Tests
 
