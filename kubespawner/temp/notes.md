@@ -26,17 +26,10 @@ While the **html templates** are located in:
 
 ### **What's next?**
 
-1. Refine the error messages that are displayed for the end user (add the administrator contact mail for example...)
+1. Properly document all errors that are being handled so far - strucutre like the `Quota Exceeded` error. 
 2. Properly test all the implemented errors and their handling and document the tests in the `Tests` section of the notes. Also, document any encountered bugs in the `Known Bugs` section and how the bug was fixed.
-3. Based on the Word document, add more steps to this section of **What's next?** (Storage-related errors?, AI calls?, ...)
- 
-
-Try to set `start_timeout` in `jupyterhub_config.py` to let's say 60 seconds to see if it kills the spawn after that time (for `Unavailable Resources` error). - this works as expected
-
-Both `Unavailable Resoruces` and `Non-existent regular PVC` errors are being handled in the same way as the `Image Not Found` error - so far so good, just need to test it as stated in the step 4 of this section. To test the correct mount of PVC, just fill `jh-errors-pvc` this in the spawn form.
-
-
-
+3. Maybe try to handle the `Quota Exceeded` error in a similar fashion to those that we handle through event monitoring (the message doesn't display the event reason and message - or rather in this case the exception reason and message), which to make in uniform with the other 3 errors it should. Also I'm not sure if the 403 ApiException can't be raised in a different case, which would make this handling faulty is this assumes that `ApiException` with code 403 is only thrown when the quota is exceeded.
+4. Based on the Word document, add more steps to this section of **What's next?** (Storage-related errors?, AI calls?, ...)
 
 ## 4. Errors
 
@@ -45,20 +38,29 @@ Both `Unavailable Resoruces` and `Non-existent regular PVC` errors are being han
 **Cause:**  
 User requests more resources than allowed by the quota set for them via `requests.cpu` and `requests.memory` (Kubernetes resource management).
 
-**Current Behavior:**
-- Custom message is shown via catching `ApiException` in the custom spawner.
-- After failure, everything is cleaned up (automatically by the JupyterHub).
-- User needs to return to the home page before trying to spawn their notebook again. (Simply pressing F5/Ctrl+R does not suffice as that will try to reload the specific spawning page and gives back 500 Internal server error).
+**Previous Behavior:**
+- Once invoked, the spawn fails and displays the whole `ApiException` object as a string (with HTTP response headers and response body).
 
-**Note:** On the infra production hub, this error doesn’t occur easily, likely due to overly generous quotas - I wasn't able to reproduce this error myself, however it can probably still occur for other users with lower resource allowance.
+- When the spawn is stopped (when the `ApiException` gets raised), all the tasks/events related to the spawn are cancelled and cleaned up by the `JupyterHub` automatically.
 
-**Future Solution:**
-- Catch the error.
-- Display a user-friendly error message.
-- (Not yet implemented) Display current `requests.cpu` and `requests.memory` values, or implement an AI helper that recommends valid values.
-- (Optional) Add redirect back to the home page for the user to not try and refresh but click the button to go to home page and try again from there. (URL for this should be found as the value of variable `spawner.hub.base_url`).
-- Allow the user to try again.
+- Reloading results in a `HTTP 500: Internal server error` (since reloading means the URL remains unchanged looking like this: `https://jh-error.dyn.cloud.e-infra.cz/hub/spawn-pending/user1?_xsrf=2%7C3ff4198b%7Cdacde6d671cfcd3c11e427383c6ee687%7C1745340318`). This is retrying to acccess the pending spawn that has already been cancelled when the `ApiException` was raised.
 
+- Going back to the `Home page` and pressing the `Start My Server` button takes the user back to the spawn form and allows them to try again.
+
+**New Behavior:**
+- Once invoked, the spawn fails and displays a human-readable short and concise message stating the reason for the failure and prompting the user to contact the administrator if the issue persists.
+
+- When the spawn is stopped (when the `ApiException` gets raised), all the tasks/events related to the spawn are cancelled and cleaned up by the `JupyterHub` automatically.
+
+- Reloading results in a `HTTP 500: Internal server error` (since reloading means the URL remains unchanged looking like this: `https://jh-error.dyn.cloud.e-infra.cz/hub/spawn-pending/user1?_xsrf=2%7C3ff4198b%7Cdacde6d671cfcd3c11e427383c6ee687%7C1745340318`). This is retrying to acccess the pending spawn that has already been cancelled when the `ApiException` was raised.
+
+- Going back to the `Home page` and pressing the `Start My Server` button takes the user back to the spawn form and allows them to try again.
+
+**Future Enhancements:**
+
+- (***TBD***) Display current `requests.cpu` and `requests.memory` values, or implement an AI helper that recommends valid values. For now, the message is basically a human-readable placeholder, but the AI call should suggest some steps the user can take to avoid getting the error (before trying to contact the administrators).
+
+- (***Optional***) Add redirect back to the home page for the user to not try and refresh but click the button to go to home page and try again from there. (URL for this should be found as the value of variable `spawner.hub.base_url`. This would however mean the frontend templates need to be adjusted).
 
 ---
 
@@ -83,9 +85,6 @@ To invoke this error, put `nonexistent.registry.io/broken-image:latest` in the i
 - Kill the notebook spawn process (clean up all associated events).
 - Show a user-friendly error message.
 - Allow the user to try again.
-
-**Hint:**  
-Check the pod logs for the singleuser notebook. Look for warning messages and pod state.
 
 ---
 
