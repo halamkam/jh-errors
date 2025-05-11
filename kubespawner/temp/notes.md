@@ -24,12 +24,23 @@ While the **html templates** are located in:
 
 ## 3. Notes
 
-### **What's next?**
+### **TODO**
 
-1. Properly document all errors that are being handled so far - strucutre like the `Quota Exceeded` error. 
-2. Properly test all the implemented errors and their handling and document the tests in the `Tests` section of the notes. Also, document any encountered bugs in the `Known Bugs` section and how the bug was fixed.
-3. Maybe try to handle the `Quota Exceeded` error in a similar fashion to those that we handle through event monitoring (the message doesn't display the event reason and message - or rather in this case the exception reason and message), which to make in uniform with the other 3 errors it should. Also I'm not sure if the 403 ApiException can't be raised in a different case, which would make this handling faulty is this assumes that `ApiException` with code 403 is only thrown when the quota is exceeded.
-4. Based on the Word document, add more steps to this section of **What's next?** (Storage-related errors?, AI calls?, ...)
+1. Properly test all the implemented errors and their handling and document the tests in the `Tests` section of the notes. Also, document any encountered bugs in the `Known Bugs` section and describe how the bug was fixed.
+2. Maybe try to handle the `Quota Exceeded` error in a similar fashion to those that we handle through event monitoring (the message doesn't display the event reason and message - or rather in this case the exception reason and message), which to make in uniform with the other 3 errors it should. Also I'm not sure if the 403 ApiException can't be raised in a different case, which would make this handling faulty is this assumes that `ApiException` with code 403 is only thrown when the quota is exceeded.
+
+### **Questions**
+
+- What should I do next? In the Word document, there is multiple things mentioned that need to be done after implementing the error handling of quota exceeded with resources, unavailable resources (within quota), non-existent image and non-existent regular PVC. These have been handled (along with the spawn cancelling). So what now?
+  - Do I add code from production hub to test it with the full form used in production?
+  - Do I test all this still in my own namespace and enviornment, or do I do this in some kind of test/dev enviornment of the actual hub?
+  - There was a mention of some kind of storage-related errors as well (I assume these are the "special" PVCs `sshfs` and `s3`). Do I work on these (and what actually are these)?
+  - Do I implement the AI callbacks in order to replace these error messages that I have currently in place?
+
+### **Notes**
+
+- "ked sa dany notebook ma zmazat (napr. pri neopravitelnej chybe), pomazu sa s nim i jeho eventy. Vytvorenie ntb je sprevadzane kopu eventami a ked v rychlom slede za sebou vytvoris novy ntb s tym istym nazvom, tak ti v tej pending page vypisuje este eventy stareho ntb (kubectl get events –n [namespace] ti ukaze tie eventy)" 
+  - There is not much that can be done with the `kubectl get events -n [namespace]`, not from JupyterHub or KubeSpawner anyway - however on the `pending` page, these old events shouldn't be displayed anymore (they are being deleted during the `start()` method call, however I don't know how this is displayed on the production hub right now).
 
 ## 4. Errors
 
@@ -149,6 +160,132 @@ User specifies a `PersistentVolumeClaim (PVC)` in the spawn form that does not e
 ---
 
 ## 5. Tests
+
+### 🔍 Quota Exceeded (403 - Forbidden)
+
+**Test Setup:**\
+Use the spawn form to request CPU or memory above the user’s quota (e.g., 64 GB memory if your quota is only 40 GB).  
+Use a valid image and avoid invalid PVCs.
+
+**Expected Behavior:**\
+Spawn is blocked by Kubernetes quota enforcement.  
+Spawner raises an `ApiException` with status 403.  
+Error is caught and a user-friendly message is shown:
+```
+Notebook failed to start: Your resource quota has been exceeded. Contact your administrator.
+
+If this issue persists, please contact your administrator at k8s@ics.muni.cz.
+```
+
+**Observed Behavior:**\
+The spawn is cancelled right away and the correct error message with the correct exception is being raised.
+
+**Status:**\
+✅
+
+**Notes:**\
+This is currently the only error caught outside the event monitoring system.  
+A future refactor might migrate this to the unified monitoring approach for consistency.
+
+---
+
+### 🔍 Image Not Found (404 - Not Found)
+
+**Test Setup:**\
+Use the spawn form and set the image field to:
+```
+nonexistent.registry.io/broken-image:latest
+```
+Set CPU/memory to reasonable values to avoid other errors.  
+Submit the form to trigger the spawn.
+
+**Expected Behavior:**\
+Spawn begins and fails within ~10 seconds.  
+Event `ErrImagePull` or `ImagePullBackOff` is logged.  
+Event monitoring cancels the spawn.  
+User sees a message like:
+```
+Failed to pull the notebook image.
+
+Reason: <event.reason>
+Details: <event.message>
+
+If this issue persists, please contact your administrator at k8s@ics.muni.cz.
+```
+
+**Observed Behavior:**\
+The spawn is cancelled after 5-10 seconds and the correct error message with the correct exception is being raised.
+
+**Status:**\
+✅
+
+**Notes:**\
+Confirm that retrying with a valid image proceeds normally.  
+Confirm no lingering error state from a previous failed spawn.
+
+---
+
+### 🔍 Unavailable Resources (409 - Conflict)
+
+**Test Setup:**\
+Use the spawn form and request a very high number of CPUs (e.g., 120).  
+Use a valid image and skip PVC to avoid unrelated issues.  
+Submit the form to trigger the spawn.
+
+**Expected Behavior:**\
+Spawn begins and fails quickly (~5–15 seconds).  
+`FailedScheduling` event logs: `Insufficient cpu` or `Insufficient memory`.  
+Event monitoring detects and cancels the spawn.  
+User sees a message like:
+```
+Failed to schedule the notebook server due to insufficient resources.
+
+Reason: <event.reason>
+Details: <event.message>
+
+If this issue persists, please contact your administrator at k8s@ics.muni.cz.
+```
+
+**Observed Behavior:**\
+The spawn is cancelled after 5-10 seconds and the correct error message with the correct exception is being raised.
+
+**Status:**\
+✅
+
+**Notes:**\
+Test both CPU and memory over-requests.  
+Confirm retrying with valid values succeeds.
+
+---
+
+### 🔍 Non-existent PVC (404 - Not Found)
+
+**Test Setup:**\
+Use the spawn form and enter a PVC name that does not exist in the current namespace (e.g., `lol`).  
+Set image and resource values to something valid.
+
+**Expected Behavior:**\
+Spawn begins and fails quickly (~5–10 seconds).  
+A `FailedScheduling` event is logged with message: `persistentvolumeclaim "lol" not found`.  
+Event monitoring detects and cancels the spawn.  
+User sees a message like:
+```
+Notebook failed to start because the specified PersistentVolumeClaim (PVC) was not found.
+
+Reason: <event.reason>
+Details: <event.message>
+
+If this issue persists, please contact your administrator at k8s@ics.muni.cz.
+```
+
+**Observed Behavior:**\
+The spawn is cancelled after 5-10 seconds and the correct error message with the correct exception is being raised.
+
+**Status:**\
+✅
+
+**Notes:**\
+Ensure that retrying with a valid PVC (e.g., `jh-errors-pvc`) spawns the notebook successfully.
 
 ## 6. Known Bugs
 
