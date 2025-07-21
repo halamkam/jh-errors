@@ -1,7 +1,0 @@
-/*
-!kubespawner/
-!jupyterhub/
-!.gitignore
-*.pyc
-*.pyo
-__pycache__/
