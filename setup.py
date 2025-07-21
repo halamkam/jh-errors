@@ -21,4 +21,8 @@ setup(
         "License :: OSI Approved :: MIT License",  # Change if using another license
         "Operating System :: OS Independent",
     ],
+    setup_requires=[
+        'setuptools>=42',
+        'wheel',
+    ],
 )
